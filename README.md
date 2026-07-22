@@ -1,14 +1,33 @@
 # send-email-skill
 
-An Agent Skill for sending plain-text email through macOS `/usr/bin/mail` and verifying local Postfix queue state.
+[English](README.md) | [简体中文](README.zh-CN.md)
+
+An Agent Skill that sends plain-text email through macOS `/usr/bin/mail` and verifies local Postfix queue state.
+
+## Features
+
+- Uses the mail transport already configured on the machine; no additional SMTP credentials are stored by the skill.
+- Validates one recipient, the subject, and a non-empty message body before sending.
+- Requires explicit user authorization and sends each requested message only once.
+- Supports body content from standard input or a plain-text file.
+- Provides `--dry-run` validation without sending a message.
+- Returns deterministic markers for local acceptance and queue status.
+
+## Requirements
+
+- macOS with `/usr/bin/mail` and `/usr/bin/mailq`
+- A working local Postfix configuration capable of external delivery
+- An Agent Skills-compatible client such as Codex
 
 ## Install
+
+Install with the Skills CLI:
 
 ```bash
 npx skills add jeffliu05042/send-email-skill@send-email -g -y
 ```
 
-For a manual Codex installation:
+Or install manually for Codex:
 
 ```bash
 git clone https://github.com/jeffliu05042/send-email-skill.git
@@ -16,24 +35,39 @@ mkdir -p ~/.codex/skills
 cp -R send-email-skill/skills/send-email ~/.codex/skills/
 ```
 
-## Use
+Restart the client or begin a new task if it does not immediately discover the skill.
 
-Ask your agent to use `$send-email`, for example:
+## Use with an Agent
+
+Invoke the skill explicitly and provide the recipient and purpose:
 
 ```text
 Use $send-email to send the release report to person@example.com.
 ```
 
-The skill requires explicit user authorization before sending. It validates a single recipient, subject, and non-empty plain-text body; invokes `/usr/bin/mail`; waits for on-demand Postfix startup; and reports success only when the local queue is empty.
+The agent should review the recipient, subject, and body, then run the bundled script only after the user has authorized delivery.
 
-## Requirements
+## Use the Script Directly
 
-- macOS with `/usr/bin/mail` and `/usr/bin/mailq`
-- A working local Postfix configuration capable of external delivery
+Pipe the body through standard input:
 
-This skill intentionally does not support HTML or attachments. An empty local queue confirms local handoff, not recipient receipt.
+```bash
+printf '%s\n' 'The release is complete.' | \
+  skills/send-email/scripts/send_email.sh \
+  --to 'person@example.com' \
+  --subject 'Release completed'
+```
 
-## Validate Without Sending
+Or read the body from a file:
+
+```bash
+skills/send-email/scripts/send_email.sh \
+  --to 'person@example.com' \
+  --subject 'Release report' \
+  --body-file '/absolute/path/report.txt'
+```
+
+Validate without sending:
 
 ```bash
 printf '%s\n' 'Test body' | \
@@ -43,6 +77,35 @@ printf '%s\n' 'Test body' | \
   --dry-run
 ```
 
+## Result Contract
+
+| Marker | Meaning |
+| --- | --- |
+| `DRY_RUN_OK` | Inputs passed validation; no email was sent. |
+| `LOCAL_MAIL_ACCEPTED` | `/usr/bin/mail` accepted the message locally. |
+| `QUEUE_EMPTY` | No message remains in the local Postfix queue. |
+| `LOCAL_MAIL_REJECTED` | The local mail command rejected the message. |
+| `QUEUE_STATUS_UNCONFIRMED` | The script could not confirm an empty queue within five seconds. |
+
+A successful send requires exit code `0` plus both `LOCAL_MAIL_ACCEPTED` and `QUEUE_EMPTY`. These signals confirm local submission, not that the recipient has read or received the message.
+
+## Safety and Limitations
+
+- Do not include passwords, API keys, private keys, or unrelated local data.
+- An uncertain or failed result must be investigated before retrying to avoid duplicate email.
+- Only one recipient and a plain-text body are supported.
+- HTML, CC, BCC, and attachments are intentionally outside the current scope.
+- Deliverability still depends on the machine's Postfix relay, DNS, and sender configuration.
+
+## Project Structure
+
+```text
+skills/send-email/
+├── SKILL.md
+├── agents/openai.yaml
+└── scripts/send_email.sh
+```
+
 ## License
 
-MIT
+[MIT](LICENSE)
