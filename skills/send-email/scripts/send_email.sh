@@ -5,8 +5,11 @@ mail_bin="${SEND_EMAIL_MAIL_BIN:-/usr/bin/mail}"
 mailq_bin="${SEND_EMAIL_MAILQ_BIN:-/usr/bin/mailq}"
 log_bin="${SEND_EMAIL_LOG_BIN:-/usr/bin/log}"
 python_bin="${SEND_EMAIL_PYTHON_BIN:-/usr/bin/python3}"
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+smtp_script="${SEND_EMAIL_SMTP_SCRIPT:-$script_dir/smtp_send.py}"
 verify_attempts="${SEND_EMAIL_VERIFY_ATTEMPTS:-15}"
 verify_interval="${SEND_EMAIL_VERIFY_INTERVAL:-1}"
+transport="local"
 recipient=""
 subject=""
 body_file=""
@@ -16,7 +19,7 @@ mail_output=""
 
 usage() {
   printf '%s\n' \
-    "Usage: send_email.sh --to ADDRESS --subject SUBJECT [--body-file PATH] [--dry-run]" \
+    "Usage: send_email.sh [--transport local|smtp] --to ADDRESS --subject SUBJECT [--body-file PATH] [--dry-run]" \
     "If --body-file is omitted, the message body is read from standard input."
 }
 
@@ -32,6 +35,11 @@ trap cleanup EXIT
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --transport)
+      [[ $# -ge 2 ]] || { usage >&2; exit 64; }
+      transport="$2"
+      shift 2
+      ;;
     --to)
       [[ $# -ge 2 ]] || { usage >&2; exit 64; }
       recipient="$2"
@@ -63,10 +71,18 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-[[ -x "$mail_bin" ]] || { printf '%s\n' "Missing executable: $mail_bin" >&2; exit 69; }
-[[ -x "$mailq_bin" ]] || { printf '%s\n' "Missing executable: $mailq_bin" >&2; exit 69; }
-[[ -x "$log_bin" ]] || { printf '%s\n' "Missing executable: $log_bin" >&2; exit 69; }
 [[ -x "$python_bin" ]] || { printf '%s\n' "Missing executable: $python_bin" >&2; exit 69; }
+[[ "$transport" == "local" || "$transport" == "smtp" ]] || {
+  printf 'Unsupported transport: %s\n' "$transport" >&2
+  exit 64
+}
+if [[ "$transport" == "local" ]]; then
+  [[ -x "$mail_bin" ]] || { printf '%s\n' "Missing executable: $mail_bin" >&2; exit 69; }
+  [[ -x "$mailq_bin" ]] || { printf '%s\n' "Missing executable: $mailq_bin" >&2; exit 69; }
+  [[ -x "$log_bin" ]] || { printf '%s\n' "Missing executable: $log_bin" >&2; exit 69; }
+else
+  [[ -r "$smtp_script" ]] || { printf '%s\n' "Missing SMTP helper: $smtp_script" >&2; exit 69; }
+fi
 [[ "$verify_attempts" =~ ^[1-9][0-9]*$ ]] || {
   printf '%s\n' "SEND_EMAIL_VERIFY_ATTEMPTS must be a positive integer." >&2
   exit 64
@@ -124,6 +140,22 @@ fi
 
 [[ -s "$temp_body" ]] || { printf '%s\n' "Message body cannot be empty." >&2; exit 65; }
 printf 'SUBJECT_HEADER_READY encoding=%s\n' "$subject_encoding"
+
+if [[ "$transport" == "smtp" ]]; then
+  smtp_args=(
+    --to "$recipient"
+    --subject "$subject"
+    --body-file "$temp_body"
+  )
+  if [[ "$dry_run" -eq 1 ]]; then
+    smtp_args+=(--dry-run)
+  fi
+  if "$python_bin" "$smtp_script" "${smtp_args[@]}"; then
+    exit 0
+  else
+    exit $?
+  fi
+fi
 
 if [[ "$dry_run" -eq 1 ]]; then
   body_bytes="$(/usr/bin/wc -c < "$temp_body" | /usr/bin/tr -d ' ')"

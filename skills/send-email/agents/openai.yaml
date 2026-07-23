@@ -1,4 +1,4 @@
 interface:
   display_name: "Send Email"
-  short_description: "用本机 /usr/bin/mail 发信并核验远端 SMTP 状态"
-  default_prompt: "Use $send-email to send this report through the local mail command and verify that the receiving SMTP server accepts it."
+  short_description: "通过本机或认证 SMTP 安全发信并核验远端状态"
+  default_prompt: "Use $send-email to choose a configured mail transport, send this report once, and verify remote SMTP acceptance."

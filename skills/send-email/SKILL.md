@@ -1,18 +1,26 @@
 ---
 name: send-email
-description: Send plain-text email through the macOS local /usr/bin/mail command, RFC 2047-encode non-ASCII subjects, and verify the receiving SMTP server's response from Postfix logs. Use when the user asks to email, mail, send, or deliver a report, notification, or confirmation from this machine, especially when local terminal delivery should be used instead of Apple Mail automation or a cloud connector.
+description: Send plain-text email through either macOS /usr/bin/mail or an explicitly selected authenticated SMTP service, with RFC 2047 subject encoding and remote acceptance verification. Use when the user asks to email, mail, send, or deliver a report, notification, or confirmation, including when direct Postfix delivery is rejected because of sender-IP reputation.
 ---
 
 # Send Email
 
-Use `scripts/send_email.sh`, resolved relative to this `SKILL.md`, for deterministic local delivery. It encodes non-ASCII subjects, invokes `/usr/bin/mail -v`, and checks macOS Postfix logs for the receiving SMTP server's delivery status.
+Use `scripts/send_email.sh`, resolved relative to this `SKILL.md`. It supports two explicit transports and never retries through a different transport automatically.
 
 ## Safety
 
-1. Treat sending as an external side effect. Send only when the user explicitly asks to send and supplies or confirms the recipient.
-2. Review the recipient, subject, and body before execution. Never include credentials, tokens, private keys, or unrelated local data.
-3. Send exactly once. If an earlier attempt has an uncertain result, inspect its command status and queue evidence before retrying.
-4. Use plain-text content. Attachments and HTML are outside this skill's scope.
+1. Send only when the user explicitly authorizes delivery and supplies or confirms the recipient.
+2. Review the recipient, subject, body, and transport before execution. Never include credentials, private keys, or unrelated local data.
+3. Send exactly once. Investigate an uncertain result before retrying.
+4. Prefer a macOS Keychain item for SMTP passwords. Never place passwords in files, command arguments, commits, or user-facing output.
+5. Use plain-text content. Attachments and HTML are outside this skill's scope.
+
+## Select a Transport
+
+- `local` (default): use `/usr/bin/mail` and direct Postfix delivery. Choose only when the current network's sender IP is acceptable to the recipient domain.
+- `smtp`: log in to a configured SMTP service over SSL or STARTTLS. Choose when direct delivery is blocked or authenticated sender identity is required. Read [references/smtp.md](references/smtp.md) before use.
+
+Do not fall back from `local` to `smtp` automatically: a local result may be delayed or ambiguous, and fallback could send a duplicate.
 
 ## Send
 
@@ -21,27 +29,29 @@ Pipe a generated body through standard input:
 ```bash
 printf '%s\n' 'Report body' | \
   <skill-directory>/scripts/send_email.sh \
+  --transport local \
   --to 'person@example.com' \
   --subject 'Report subject'
 ```
 
-Or read an existing plain-text file:
+For authenticated SMTP, configure the variables in [references/smtp.md](references/smtp.md), then change the transport:
 
 ```bash
-<skill-directory>/scripts/send_email.sh \
+printf '%s\n' 'Report body' | \
+  <skill-directory>/scripts/send_email.sh \
+  --transport smtp \
   --to 'person@example.com' \
-  --subject 'Report subject' \
-  --body-file '/absolute/path/report.txt'
+  --subject 'Report subject'
 ```
 
-Replace `<skill-directory>` with the directory containing this `SKILL.md`. Use `--dry-run` to validate inputs and subject encoding without sending.
+Alternatively pass `--body-file '/absolute/path/report.txt'`. Use `--dry-run` to validate inputs and configuration without sending or connecting to the SMTP server.
 
 ## Interpret Results
 
-- `SUBJECT_HEADER_READY` reports whether the subject is ASCII or RFC 2047 encoded.
-- `LOCAL_MAIL_ACCEPTED` means `/usr/bin/mail` accepted the message locally.
-- `REMOTE_SMTP_ACCEPTED` means the receiving SMTP server returned a successful status.
-- `REMOTE_SMTP_REJECTED`, `REMOTE_DELIVERY_DEFERRED`, and `REMOTE_DELIVERY_UNCONFIRMED` are failures.
-- Report success only when `REMOTE_SMTP_ACCEPTED` appears and the script exits `0`; `QUEUE_EMPTY` is additional queue evidence.
-- Say the receiving SMTP server accepted the email; do not claim the recipient read it.
-- On any nonzero exit, report the exact failure and do not silently switch to Apple Mail or retry.
+- `SUBJECT_HEADER_READY` reports ASCII or RFC 2047 subject preparation.
+- `LOCAL_MAIL_ACCEPTED` means `/usr/bin/mail` accepted a local-transport message.
+- `SMTP_CONFIG_READY` and `SMTP_AUTHENTICATED` describe authenticated SMTP setup and login.
+- `REMOTE_SMTP_ACCEPTED` means the receiving SMTP server accepted the message; require it plus exit code `0` before reporting success.
+- `REMOTE_SMTP_REJECTED`, `REMOTE_DELIVERY_DEFERRED`, `REMOTE_DELIVERY_UNCONFIRMED`, `SMTP_AUTH_FAILED`, and `SMTP_SEND_FAILED` are failures.
+- Say the receiving SMTP server accepted the message; do not claim the recipient read it.
+- On nonzero exit, report the exact failure and do not silently switch transports or retry.

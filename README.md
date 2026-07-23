@@ -2,23 +2,24 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-An Agent Skill that sends plain-text email through macOS `/usr/bin/mail`, safely encodes non-ASCII subjects, and verifies the receiving SMTP server's response from Postfix logs.
+An Agent Skill that sends plain-text email through either macOS `/usr/bin/mail` or an explicitly selected authenticated SMTP service. It safely handles non-ASCII subjects and verifies remote SMTP acceptance.
 
 ## Features
 
-- Uses the mail transport already configured on the machine; no additional SMTP credentials are stored by the skill.
+- Supports direct local Postfix delivery and authenticated SMTP over SSL or STARTTLS.
+- Reads SMTP app passwords from macOS Keychain or the process environment; it never stores them in the repository.
 - Validates one recipient, the subject, and a non-empty message body before sending.
 - Encodes non-ASCII subjects with RFC 2047 so servers without `SMTPUTF8` can accept them.
 - Requires explicit user authorization and sends each requested message only once.
 - Supports body content from standard input or a plain-text file.
 - Provides `--dry-run` validation without sending a message.
-- Returns deterministic markers for local acceptance, remote SMTP acceptance or rejection, and queue status.
+- Returns deterministic markers for configuration, authentication, local acceptance, remote SMTP acceptance or rejection, and queue status.
 
 ## Requirements
 
-- macOS with `/usr/bin/mail`, `/usr/bin/mailq`, and `/usr/bin/log`
-- `/usr/bin/python3` for standard-library RFC 2047 subject encoding
-- A working local Postfix configuration capable of external delivery
+- A Unix-like shell and `/usr/bin/python3`
+- For the default `local` transport: macOS with `/usr/bin/mail`, `/usr/bin/mailq`, `/usr/bin/log`, and working Postfix delivery
+- For the `smtp` transport: provider SMTP settings and an app password; macOS Keychain is recommended
 - An Agent Skills-compatible client such as Codex
 
 ## Install
@@ -47,7 +48,7 @@ Invoke the skill explicitly and provide the recipient and purpose:
 Use $send-email to send the release report to person@example.com.
 ```
 
-The agent should review the recipient, subject, and body, then run the bundled script only after the user has authorized delivery. The script reports success only after `status=sent` appears in the macOS Postfix log.
+The agent should review the recipient, subject, body, and transport, then run the bundled script only after the user has authorized delivery. It must not automatically switch transports or retry an uncertain result.
 
 ## Use the Script Directly
 
@@ -79,12 +80,25 @@ printf '%s\n' 'Test body' | \
   --dry-run
 ```
 
+To use authenticated SMTP, configure the variables described in [`skills/send-email/references/smtp.md`](skills/send-email/references/smtp.md), then select it explicitly:
+
+```bash
+printf '%s\n' 'Test body' | \
+  skills/send-email/scripts/send_email.sh \
+  --transport smtp \
+  --to 'person@example.com' \
+  --subject 'Authenticated SMTP test' \
+  --dry-run
+```
+
 ## Result Contract
 
 | Marker | Meaning |
 | --- | --- |
 | `DRY_RUN_OK` | Inputs passed validation; no email was sent. |
 | `SUBJECT_HEADER_READY` | The subject is ASCII or has been RFC 2047 encoded. |
+| `SMTP_CONFIG_READY` | Authenticated SMTP configuration and MIME construction passed validation. |
+| `SMTP_AUTHENTICATED` | The configured SMTP service accepted the login. |
 | `LOCAL_MAIL_ACCEPTED` | `/usr/bin/mail` accepted the message locally. |
 | `REMOTE_SMTP_ACCEPTED` | The receiving SMTP server accepted the message. |
 | `REMOTE_SMTP_REJECTED` | The receiving SMTP server rejected the message. |
@@ -102,7 +116,8 @@ A successful send requires exit code `0` plus `REMOTE_SMTP_ACCEPTED`. This confi
 - An uncertain or failed result must be investigated before retrying to avoid duplicate email.
 - Only one recipient and a plain-text body are supported.
 - HTML, CC, BCC, and attachments are intentionally outside the current scope.
-- Deliverability and inbox placement still depend on the machine's Postfix relay, DNS, sender configuration, and recipient-side filtering.
+- Deliverability and inbox placement still depend on the selected relay, DNS, sender configuration, and recipient-side filtering.
+- Use an app password, preferably stored in macOS Keychain; never commit or print credentials.
 
 ## Project Structure
 
@@ -110,10 +125,14 @@ A successful send requires exit code `0` plus `REMOTE_SMTP_ACCEPTED`. This confi
 skills/send-email/
 ├── SKILL.md
 ├── agents/openai.yaml
-└── scripts/send_email.sh
+├── references/smtp.md
+└── scripts/
+    ├── send_email.sh
+    └── smtp_send.py
 tests/
 ├── fixtures/
-└── test_send_email.sh
+├── test_send_email.sh
+└── test_smtp_send.py
 ```
 
 ## License

@@ -91,4 +91,28 @@ if [[ "$bounce_output" == *"REMOTE_SMTP_ACCEPTED"* ]]; then
   exit 1
 fi
 
-printf '%s\n' "PASS: subject encoding and remote delivery verification."
+set +e
+smtp_dry_run_output="$(printf '%s\n' 'Authenticated SMTP test body' | \
+  SEND_EMAIL_SMTP_HOST='smtp.example.com' \
+  SEND_EMAIL_SMTP_PORT='465' \
+  SEND_EMAIL_SMTP_SECURITY='ssl' \
+  SEND_EMAIL_SMTP_USERNAME='sender@example.com' \
+  SEND_EMAIL_SMTP_PASSWORD='not-a-real-secret' \
+  "$send_script" \
+  --transport smtp \
+  --to 'person@example.com' \
+  --subject '认证 SMTP 测试' \
+  --dry-run 2>&1)"
+smtp_dry_run_status=$?
+set -e
+[[ "$smtp_dry_run_status" -eq 0 ]] || {
+  printf 'FAIL: authenticated SMTP dry-run returned %s.\n' "$smtp_dry_run_status" >&2
+  printf '%s\n' "$smtp_dry_run_output" >&2
+  exit 1
+}
+[[ "$smtp_dry_run_output" == *"SMTP_CONFIG_READY security=ssl host=smtp.example.com port=465"* ]] || {
+  printf '%s\n' "FAIL: authenticated SMTP config was not validated." >&2
+  exit 1
+}
+
+printf '%s\n' "PASS: local delivery verification and authenticated SMTP transport."
