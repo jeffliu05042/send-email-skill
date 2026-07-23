@@ -1,4 +1,4 @@
 interface:
   display_name: "Send Email"
-  short_description: "用本机 /usr/bin/mail 安全发送邮件并核验队列"
-  default_prompt: "Use $send-email to send this report through the local mail command and verify that the local queue is clear."
+  short_description: "用本机 /usr/bin/mail 发信并核验远端 SMTP 状态"
+  default_prompt: "Use $send-email to send this report through the local mail command and verify that the receiving SMTP server accepts it."

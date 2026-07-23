@@ -1,11 +1,11 @@
 ---
 name: send-email
-description: Send plain-text email through the macOS local /usr/bin/mail command and verify Postfix submission and queue state. Use when the user asks to email, mail, send, or deliver a report, notification, or confirmation from this machine, especially when local terminal delivery should be used instead of Apple Mail automation or a cloud connector.
+description: Send plain-text email through the macOS local /usr/bin/mail command, RFC 2047-encode non-ASCII subjects, and verify the receiving SMTP server's response from Postfix logs. Use when the user asks to email, mail, send, or deliver a report, notification, or confirmation from this machine, especially when local terminal delivery should be used instead of Apple Mail automation or a cloud connector.
 ---
 
 # Send Email
 
-Use `scripts/send_email.sh`, resolved relative to this `SKILL.md`, for deterministic local delivery. It invokes `/usr/bin/mail`, waits for the on-demand Postfix process, and verifies that the local queue becomes empty.
+Use `scripts/send_email.sh`, resolved relative to this `SKILL.md`, for deterministic local delivery. It encodes non-ASCII subjects, invokes `/usr/bin/mail -v`, and checks macOS Postfix logs for the receiving SMTP server's delivery status.
 
 ## Safety
 
@@ -34,12 +34,14 @@ Or read an existing plain-text file:
   --body-file '/absolute/path/report.txt'
 ```
 
-Replace `<skill-directory>` with the directory containing this `SKILL.md`. Use `--dry-run` to validate inputs without sending.
+Replace `<skill-directory>` with the directory containing this `SKILL.md`. Use `--dry-run` to validate inputs and subject encoding without sending.
 
 ## Interpret Results
 
+- `SUBJECT_HEADER_READY` reports whether the subject is ASCII or RFC 2047 encoded.
 - `LOCAL_MAIL_ACCEPTED` means `/usr/bin/mail` accepted the message locally.
-- `QUEUE_EMPTY` means no message remains in the local Postfix queue.
-- Report success only when both markers appear and the script exits `0`.
-- Say the email was submitted or sent; do not claim the recipient received it unless independently confirmed.
+- `REMOTE_SMTP_ACCEPTED` means the receiving SMTP server returned a successful status.
+- `REMOTE_SMTP_REJECTED`, `REMOTE_DELIVERY_DEFERRED`, and `REMOTE_DELIVERY_UNCONFIRMED` are failures.
+- Report success only when `REMOTE_SMTP_ACCEPTED` appears and the script exits `0`; `QUEUE_EMPTY` is additional queue evidence.
+- Say the receiving SMTP server accepted the email; do not claim the recipient read it.
 - On any nonzero exit, report the exact failure and do not silently switch to Apple Mail or retry.
